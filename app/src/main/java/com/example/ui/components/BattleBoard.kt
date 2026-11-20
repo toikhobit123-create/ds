@@ -102,6 +102,7 @@ fun BattleBoard(
     draggingCombatUnitId: String? = null,
     isDraggingBenchBlocker: Boolean = false,
     draggedBenchUnit: UnitOnBoard? = null,
+    draggedCombatUnit: UnitOnBoard? = null,
     tileWidthOverride: Dp? = null,
     tileHeightOverride: Dp? = null,
     unitGapOverride: Dp? = null,
@@ -221,6 +222,7 @@ fun BattleBoard(
                 draggingUnitId = draggingCombatUnitId,
                 isDraggingBenchBlocker = isDraggingBenchBlocker,
                 draggedBenchUnit = draggedBenchUnit,
+                draggedCombatUnit = draggedCombatUnit,
                 highlightedTargetEnemyIds = highlightedTargetEnemyIds,
                 highlightedTargetAllyIds = highlightedTargetAllyIds,
                 modifier = Modifier
@@ -445,6 +447,7 @@ private fun SeamlessIceBattlefieldZone(
     draggingUnitId: String?,
     isDraggingBenchBlocker: Boolean,
     draggedBenchUnit: UnitOnBoard?,
+    draggedCombatUnit: UnitOnBoard? = null,
     highlightedTargetEnemyIds: Set<String>,
     highlightedTargetAllyIds: Set<String>,
     modifier: Modifier = Modifier,
@@ -702,26 +705,34 @@ private fun SeamlessIceBattlefieldZone(
                     horizontalArrangement = Arrangement.spacedBy(unitGap, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val activeBlockDragUnit = when {
+                        isDraggingBenchBlocker -> draggedBenchUnit
+                        combat.phase == CombatPhase.COMBAT_DECLARE_BLOCK_PHASE &&
+                            !combat.playerInitiatedCombat &&
+                            !combat.blockCommitted -> draggedCombatUnit
+                        else -> null
+                    }
                     enemyAttackers.forEach { enemyAtk ->
                         val blockerId = combat.blockPairings[enemyAtk.instanceId]
                         val blocker = blockerId?.let { id -> combat.playerBoard.find { it.instanceId == id } }
                         val isGhostBlocked = blocker == null && combat.confirmedBlockedAttackerIds.contains(enemyAtk.instanceId)
                         val isLockedBlock = combat.lockedBlockAttackerIds.contains(enemyAtk.instanceId)
                         val isTargeted = combat.selectedEnemyAttackerForBlock == enemyAtk.instanceId
-                        val canDraggedBlockThis = isDraggingBenchBlocker &&
+                        val canDraggedBlockThis = activeBlockDragUnit != null &&
                             !isLockedBlock &&
-                            draggedBenchUnit?.canBlockAttacker(enemyAtk) == true
+                            activeBlockDragUnit.canBlockAttacker(enemyAtk)
 
                         Column(
+                            modifier = Modifier.onGloballyPositioned {
+                                onEnemyAttackerBoundsChanged(enemyAtk.instanceId, it.boundsInRoot())
+                            },
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(1.dp)
                         ) {
                             // Top Enemy Attacker Token
                             Box(
                                 modifier = Modifier.onGloballyPositioned {
-                                    val rect = it.boundsInRoot()
-                                    onEnemyAttackerBoundsChanged(enemyAtk.instanceId, rect)
-                                    onEnemyUnitBoundsChanged(enemyAtk.instanceId, rect)
+                                    onEnemyUnitBoundsChanged(enemyAtk.instanceId, it.boundsInRoot())
                                 }
                             ) {
                                 UnitToken(
@@ -793,7 +804,8 @@ private fun SeamlessIceBattlefieldZone(
                                     UnitToken(
                                         unit = blocker,
                                         isBlockingLabel = if (isLockedBlock) "BỊ KÉO" else "CHẶN",
-                                        isSelected = highlightedTargetAllyIds.contains(blocker.instanceId),
+                                        isSelected = (canDraggedBlockThis && blocker.instanceId != activeBlockDragUnit?.instanceId) ||
+                                            highlightedTargetAllyIds.contains(blocker.instanceId),
                                         isDragging = draggingUnitId == blocker.instanceId,
                                         tileWidth = pairTileWidth,
                                         tileHeight = pairTileHeight,

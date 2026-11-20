@@ -87,10 +87,10 @@ import com.example.model.HandCardInstance
 import com.example.model.Keyword
 import com.example.model.SpellSpeed
 import com.example.model.UnitOnBoard
+import com.example.ui.components.ArenaBoardNexusOverlay
 import com.example.ui.components.BattleBoard
 import com.example.ui.components.BattleBoardDropHighlight
 import com.example.ui.components.CenterlineScrollButton
-import com.example.ui.components.FacetedNexusCrystal
 import com.example.ui.components.FilmGrainOverlay
 import com.example.ui.components.FreljordBattlefieldBackground
 import com.example.ui.components.HandCardView
@@ -172,6 +172,10 @@ fun CombatScreen(
 
     var activeDrag by remember { mutableStateOf<ActiveDragState?>(null) }
     var dragWarningText by remember { mutableStateOf<String?>(null) }
+    var activeLevelUpBanner by remember { mutableStateOf<UnitOnBoard?>(null) }
+    val knownChampionLevels = remember { mutableStateMapOf<String, Boolean>() }
+    val shownLevelUpTemplates = remember { mutableStateMapOf<String, Boolean>() }
+    var champTrackingInitialized by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeEmote) {
         if (activeEmote != null) {
@@ -181,8 +185,14 @@ fun CombatScreen(
     }
     LaunchedEffect(dragWarningText) {
         if (dragWarningText != null) {
-            kotlinx.coroutines.delay(1000)
+            kotlinx.coroutines.delay(1400)
             dragWarningText = null
+        }
+    }
+    LaunchedEffect(activeLevelUpBanner) {
+        if (activeLevelUpBanner != null) {
+            kotlinx.coroutines.delay(2100)
+            activeLevelUpBanner = null
         }
     }
     LaunchedEffect(combat.playerHand, combat.priorityHolder, combat.phase) {
@@ -207,6 +217,29 @@ fun CombatScreen(
             combat.enemyBoard.none { it.instanceId == current.instanceId }
         ) {
             inspectedUnit = null
+        }
+
+        val allChamps = (combat.playerBoard + combat.enemyBoard).filter { it.template.isChampion }
+        if (!champTrackingInitialized) {
+            allChamps.forEach {
+                knownChampionLevels[it.instanceId] = it.isLeveledUp
+                if (it.isLeveledUp) {
+                    shownLevelUpTemplates["${it.ownerIsPlayer}_${it.template.id}"] = true
+                }
+            }
+            champTrackingInitialized = true
+        } else {
+            val newlyLeveled = allChamps.firstOrNull { u ->
+                val champKey = "${u.ownerIsPlayer}_${u.template.id}"
+                u.isLeveledUp &&
+                    knownChampionLevels[u.instanceId] != true &&
+                    shownLevelUpTemplates[champKey] != true
+            }
+            if (newlyLeveled != null) {
+                shownLevelUpTemplates["${newlyLeveled.ownerIsPlayer}_${newlyLeveled.template.id}"] = true
+                activeLevelUpBanner = newlyLeveled
+            }
+            allChamps.forEach { knownChampionLevels[it.instanceId] = it.isLeveledUp }
         }
     }
 
@@ -245,6 +278,11 @@ fun CombatScreen(
     val enemyUnitBounds = remember { mutableStateMapOf<String, Rect>() }
     val playerUnitBounds = remember { mutableStateMapOf<String, Rect>() }
     var enemyNexusBounds by remember { mutableStateOf(Rect.Zero) }
+
+    LaunchedEffect(combat.attackingUnitIds) {
+        val activeSet = combat.attackingUnitIds.toSet()
+        enemyAttackerBounds.keys.retainAll(activeSet)
+    }
 
     BackHandler {
         when {
@@ -410,29 +448,67 @@ fun CombatScreen(
         activeDrag = null
     }
 
+    val blockRejectionMessage: (UnitOnBoard, UnitOnBoard) -> String = { blocker, attacker ->
+        when {
+            attacker.keywords.contains(Keyword.FEARSOME) && blocker.effectivePower < 3 ->
+                "Địch có Đáng Sợ — cần quân thủ có ít nhất 3 Công!"
+            attacker.keywords.contains(Keyword.ELUSIVE) &&
+                !blocker.keywords.contains(Keyword.ELUSIVE) &&
+                !blocker.keywords.contains(Keyword.SHARPSIGHT) ->
+                "Địch có Lẩn Tránh — cần quân có Lẩn Tránh hoặc Tinh Mắt!"
+            attacker.keywords.contains(Keyword.BRASH) && blocker.health < 3 ->
+                "Địch có Hung Hãn — cần quân thủ có ít nhất 3 Máu!"
+            else -> "${blocker.template.name} không thể chặn ${attacker.template.name}"
+        }
+    }
+
+    val findClosestHitAttackerId: (CombatState, Offset) -> String? = { c, pointer ->
+        val activeIds = c.attackingUnitIds.toSet()
+        enemyAttackerBounds.entries
+            .filter { (id, rect) -> activeIds.contains(id) && rect.inflate(32f).contains(pointer) }
+            .minByOrNull { (_, rect) ->
+                val dx = pointer.x - rect.center.x
+                val dy = pointer.y - rect.center.y
+                dx * dx + dy * dy
+            }?.key
+    }
+
     val handleBenchUnitDrop: (UnitOnBoard, Offset) -> Unit = { unit, pointer ->
         val c = latestCombat
         val inField = sharedBattlefieldBounds.inflate(28f).contains(pointer)
         if (c.priorityHolder != PriorityHolder.PLAYER) {
             dragWarningText = "Hãy chờ tới lượt của bạn"
         } else if (c.phase == CombatPhase.COMBAT_DECLARE_BLOCK_PHASE && !c.playerInitiatedCombat) {
-            if (!unit.canBlock) {
+            if (c.blockCommitted) {
+                dragWarningText = "Đã chốt đội hình chặn"
+            } else if (!unit.canBlock) {
                 dragWarningText = "${unit.template.name} không thể chặn"
             } else {
-                val hitAttackerId = enemyAttackerBounds.entries
-                    .firstOrNull { it.value.inflate(32f).contains(pointer) }?.key
-                    ?: if (inField) {
-                        c.selectedEnemyAttackerForBlock
-                            ?: c.attackingUnitIds.firstOrNull { atkId ->
-                                val atk = c.enemyBoard.find { it.instanceId == atkId }
-                                !c.blockPairings.containsKey(atkId) && atk != null && unit.canBlockAttacker(atk)
-                            }
-                    } else null
-                val targetEnemy = hitAttackerId?.let { id -> c.enemyBoard.find { it.instanceId == id } }
-                if (targetEnemy != null && unit.canBlockAttacker(targetEnemy)) {
-                    onAssignBlocker(targetEnemy.instanceId, unit.instanceId)
-                } else if (inField) {
-                    dragWarningText = "Không thể chặn kẻ tấn công đã chọn"
+                val directHitId = findClosestHitAttackerId(c, pointer)
+                val targetAttackerId = directHitId ?: if (inField) {
+                    c.selectedEnemyAttackerForBlock
+                        ?: c.attackingUnitIds.firstOrNull { atkId ->
+                            val atk = c.enemyBoard.find { it.instanceId == atkId }
+                            !c.lockedBlockAttackerIds.contains(atkId) &&
+                                !c.blockPairings.containsKey(atkId) &&
+                                atk != null &&
+                                unit.canBlockAttacker(atk)
+                        }
+                } else null
+                val targetEnemy = targetAttackerId?.let { id -> c.enemyBoard.find { it.instanceId == id } }
+                when {
+                    targetEnemy == null -> if (inField) {
+                        dragWarningText = "Kéo vào làn quân địch tấn công để chặn"
+                    }
+                    c.lockedBlockAttackerIds.contains(targetEnemy.instanceId) -> {
+                        dragWarningText = "Kẻ địch này đã khóa chặn (Thách Đấu)"
+                    }
+                    !unit.canBlockAttacker(targetEnemy) -> {
+                        dragWarningText = blockRejectionMessage(unit, targetEnemy)
+                    }
+                    else -> {
+                        onAssignBlocker(targetEnemy.instanceId, unit.instanceId)
+                    }
                 }
             }
         } else if (((c.phase == CombatPhase.MAIN_ACTION_PHASE && c.playerHasAttackToken && c.spellStack.isEmpty()) ||
@@ -454,17 +530,35 @@ fun CombatScreen(
     val handleCombatUnitDrop: (UnitOnBoard, Offset) -> Unit = { unit, pointer ->
         val c = latestCombat
         val backToBench = playerBenchBounds.inflate(36f).contains(pointer)
-        if (backToBench && c.priorityHolder == PriorityHolder.PLAYER) {
+        if (c.priorityHolder == PriorityHolder.PLAYER) {
             when (c.phase) {
                 CombatPhase.COMBAT_DECLARE_ATTACK_PHASE -> {
-                    if (c.playerHasAttackToken && c.spellStack.isEmpty()) {
+                    if (backToBench && c.playerHasAttackToken && c.spellStack.isEmpty()) {
                         onRemoveAttacker(unit.instanceId)
                     }
                 }
                 CombatPhase.COMBAT_DECLARE_BLOCK_PHASE -> {
                     if (!c.playerInitiatedCombat && !c.blockCommitted) {
-                        val attackerId = c.blockPairings.entries.firstOrNull { it.value == unit.instanceId }?.key
-                        if (attackerId != null) onRemoveBlocker(attackerId)
+                        if (backToBench) {
+                            val attackerId = c.blockPairings.entries.firstOrNull { it.value == unit.instanceId }?.key
+                            if (attackerId != null) onRemoveBlocker(attackerId)
+                        } else {
+                            val directHitId = findClosestHitAttackerId(c, pointer)
+                            val targetEnemy = directHitId?.let { id -> c.enemyBoard.find { it.instanceId == id } }
+                            if (targetEnemy != null) {
+                                when {
+                                    c.lockedBlockAttackerIds.contains(targetEnemy.instanceId) -> {
+                                        dragWarningText = "Kẻ địch này đã khóa chặn (Thách Đấu)"
+                                    }
+                                    !unit.canBlockAttacker(targetEnemy) -> {
+                                        dragWarningText = blockRejectionMessage(unit, targetEnemy)
+                                    }
+                                    else -> {
+                                        onAssignBlocker(targetEnemy.instanceId, unit.instanceId)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 else -> {}
@@ -707,6 +801,7 @@ fun CombatScreen(
                     combat.phase == CombatPhase.COMBAT_DECLARE_BLOCK_PHASE &&
                     !combat.playerInitiatedCombat,
                 draggedBenchUnit = (currentDrag as? ActiveDragState.BenchUnitDrag)?.unit,
+                draggedCombatUnit = (currentDrag as? ActiveDragState.CombatUnitDrag)?.unit,
                 tileWidthOverride = unitTileWidth,
                 tileHeightOverride = unitTileHeight,
                 unitGapOverride = unitGap,
@@ -928,20 +1023,16 @@ fun CombatScreen(
             }
         }
 
-        // LAYER 5: Left Column — Enemy Nexus (Above Centerline), Centerline Scroll Log Button, Player Nexus (Below Centerline)
-        val crystalSize = vh(13.5f).coerceIn(42.dp, 62.dp)
-        val nexusHpFont = (maxHeight.value * 0.032f).coerceIn(13f, 19f).sp
-
-        // Enemy Nexus Crystal (Above Centerline)
-        FacetedNexusCrystal(
-            hp = combat.enemyNexusHp,
-            maxHp = combat.enemyMaxHp,
-            isEnemy = true,
-            hitDelta = enemyNexusDelta,
-            crystalSize = crystalSize,
-            hpFontSize = nexusHpFont,
-            hpTestTag = "enemy_nexus_hp",
-            onClick = {
+        // LAYER 5: Built-in Arena Nexuses (Top-Left Red Enemy Nexus & Bottom-Left Blue Player Nexus) + Centerline Scroll Log Button
+        ArenaBoardNexusOverlay(
+            enemyHp = combat.enemyNexusHp,
+            enemyMaxHp = combat.enemyMaxHp,
+            enemyHitDelta = enemyNexusDelta,
+            playerHp = combat.playerNexusHp,
+            playerMaxHp = combat.playerMaxHp,
+            playerHitDelta = playerNexusDelta,
+            onEnemyNexusBoundsChanged = { enemyNexusBounds = it },
+            onEnemyNexusClick = {
                 val pending = pendingTargetCard
                 if (pending != null &&
                     (pending.template.effectType == CardEffectType.DEAL_DAMAGE_ANY ||
@@ -954,12 +1045,10 @@ fun CombatScreen(
                     showPowerInfo = true
                 }
             },
+            onPlayerNexusClick = { showMatchInfoDialog = true },
             modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = safeStart + vw(2.2f))
-                .offset(y = -vh(13.5f))
-                .onGloballyPositioned { enemyNexusBounds = it.boundsInRoot() }
-                .zIndex(18f)
+                .fillMaxSize()
+                .zIndex(21f)
         )
 
         // Square Carved-Gold Scroll Log Button directly on left end of golden centerline
@@ -970,23 +1059,6 @@ fun CombatScreen(
                 .align(Alignment.CenterStart)
                 .padding(start = safeStart + vw(1.2f))
                 .zIndex(22f)
-        )
-
-        // Player Nexus Crystal (Below Centerline)
-        FacetedNexusCrystal(
-            hp = combat.playerNexusHp,
-            maxHp = combat.playerMaxHp,
-            isEnemy = false,
-            hitDelta = playerNexusDelta,
-            crystalSize = crystalSize,
-            hpFontSize = nexusHpFont,
-            hpTestTag = "player_nexus_hp",
-            onClick = { showMatchInfoDialog = true },
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = safeStart + vw(2.2f))
-                .offset(y = vh(13.5f))
-                .zIndex(18f)
         )
 
         // LAYER 6: Bottom-Left Player Nameplate + PoC Powers + Emote + Stacked Deck Pile + Graveyard
@@ -1543,6 +1615,14 @@ fun CombatScreen(
                     showEmotePicker = false
                 },
                 onDismiss = { showEmotePicker = false }
+            )
+        }
+
+        // Champion Level-Up (Lv2) Showcase Overlay Animation
+        activeLevelUpBanner?.let { leveledChamp ->
+            ChampionLevelUpBannerOverlay(
+                unit = leveledChamp,
+                onDismiss = { activeLevelUpBanner = null }
             )
         }
     }

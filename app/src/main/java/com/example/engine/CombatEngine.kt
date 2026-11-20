@@ -3206,7 +3206,8 @@ object CombatEngine {
             "UNSEEN_PATH" -> if (chosen.keywords.contains(Keyword.ELUSIVE)) bonusPow += 1
             "GLORIOUS_EVOLUTION" -> {
                 bonusPow += 1; bonusHp += 1
-                extraKw.add(Keyword.sharablePool.random())
+                val availableKw = Keyword.sharablePool.filterNot { it in chosen.keywords }
+                extraKw.add((availableKw.ifEmpty { Keyword.sharablePool }).random())
             }
             "BLAZING_DAWN" -> {
                 bonusPow += 1; bonusHp += 1

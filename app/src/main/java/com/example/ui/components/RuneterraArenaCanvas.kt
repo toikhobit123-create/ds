@@ -21,6 +21,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,7 +39,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.SportsKabaddi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -64,15 +65,21 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.example.R
 import com.example.engine.CombatPhase
 import com.example.engine.CombatState
@@ -244,325 +251,28 @@ fun FreljordBattlefieldBackground(
             .background(ObsidianBg)
     ) {
         Image(
-            painter = painterResource(id = R.drawable.img_board_stone_bg),
+            painter = painterResource(id = R.drawable.img_board_arena_bg),
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            alpha = 0.72f,
+            alpha = 1f,
             modifier = Modifier.fillMaxSize()
         )
 
+        // Subtle outer perimeter vignette for HUD and card readability without obscuring the arena art
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
             if (w <= 1f || h <= 1f) return@Canvas
-            val midY = h * 0.5f
-
-            // 1. Deep Obsidian-Navy Atmospheric Scrim (#0A111F) keeping battlefield crisp & uncluttered
             drawRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0x521B3154),
-                        Color(0x940D1629),
-                        Color(0xE60A111F)
-                    ),
-                    center = Offset(w * 0.5f, midY),
-                    radius = w * 0.74f
-                )
-            )
-
-            // 2. Luminous Arcane Blue (#00BFFF) + Gold Corner Glows
-            val cornerRadius = w * 0.42f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x4600BFFF), Color(0x1600BFFF), Color.Transparent),
-                    center = Offset(0f, 0f),
-                    radius = cornerRadius
-                ),
-                radius = cornerRadius,
-                center = Offset(0f, 0f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x3E00BFFF), Color(0x1400BFFF), Color.Transparent),
-                    center = Offset(w, 0f),
-                    radius = cornerRadius
-                ),
-                radius = cornerRadius,
-                center = Offset(w, 0f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x4000BFFF), Color(0x1400BFFF), Color.Transparent),
-                    center = Offset(0f, h),
-                    radius = cornerRadius
-                ),
-                radius = cornerRadius,
-                center = Offset(0f, h)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x4E00BFFF), Color(0x1BD4AF37), Color.Transparent),
-                    center = Offset(w, h),
-                    radius = cornerRadius
-                ),
-                radius = cornerRadius,
-                center = Offset(w, h)
-            )
-
-            // 3. Bottom-Up Mist & Upward Battlefield Illumination in Clash Zone
-            drawOval(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
                         Color.Transparent,
-                        Color(0x3300BFFF),
-                        Color(0x4D1E5A9E),
-                        Color.Transparent
+                        Color(0x16050912),
+                        Color(0x4604070E)
                     ),
-                    startY = h * 0.22f,
-                    endY = h * 0.82f
-                ),
-                topLeft = Offset(w * 0.12f, h * 0.22f),
-                size = Size(w * 0.76f, h * 0.60f)
-            )
-
-            // Dual-layer luminous frost/stone fracture runes in center clash zone
-            val iceVeins = listOf(
-                Offset(w * 0.22f, h * 0.34f) to Offset(w * 0.41f, h * 0.44f),
-                Offset(w * 0.41f, h * 0.44f) to Offset(w * 0.35f, h * 0.57f),
-                Offset(w * 0.57f, h * 0.30f) to Offset(w * 0.68f, h * 0.46f),
-                Offset(w * 0.68f, h * 0.46f) to Offset(w * 0.80f, h * 0.38f),
-                Offset(w * 0.29f, h * 0.67f) to Offset(w * 0.49f, h * 0.56f),
-                Offset(w * 0.60f, h * 0.70f) to Offset(w * 0.75f, h * 0.58f),
-                Offset(w * 0.46f, h * 0.33f) to Offset(w * 0.53f, h * 0.48f)
-            )
-            iceVeins.forEach { (start, end) ->
-                drawLine(
-                    color = Color(0x2E00BFFF),
-                    start = start,
-                    end = end,
-                    strokeWidth = 6f,
-                    cap = StrokeCap.Round
+                    center = Offset(w * 0.5f, h * 0.5f),
+                    radius = w * 0.78f
                 )
-                drawLine(
-                    color = Color(0x6693E8FF),
-                    start = start,
-                    end = end,
-                    strokeWidth = 1.6f,
-                    cap = StrokeCap.Round
-                )
-            }
-
-            // 4. Top Carved Dark Stone Bench Rim (Enemy Territory)
-            val topStoneHeight = h * 0.23f
-            val topStonePath = Path().apply {
-                moveTo(0f, 0f)
-                lineTo(w, 0f)
-                lineTo(w, topStoneHeight * 0.88f)
-                lineTo(w * 0.84f, topStoneHeight * 0.96f)
-                lineTo(w * 0.66f, topStoneHeight)
-                lineTo(w * 0.34f, topStoneHeight)
-                lineTo(w * 0.16f, topStoneHeight * 0.94f)
-                lineTo(0f, topStoneHeight * 0.86f)
-                close()
-            }
-            drawPath(
-                path = topStonePath,
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xE60F1727), Color(0xDD19263D), Color(0xCC121D31))
-                )
-            )
-            drawLine(
-                color = Color(0x8838E4FF),
-                start = Offset(w * 0.16f, topStoneHeight * 0.94f),
-                end = Offset(w * 0.84f, topStoneHeight * 0.96f),
-                strokeWidth = 2.2f
-            )
-            for (i in 1..7) {
-                val bx = w * (0.14f + i * 0.105f)
-                drawLine(
-                    color = Color(0x60050A12),
-                    start = Offset(bx, 0f),
-                    end = Offset(bx - w * 0.01f, topStoneHeight * 0.95f),
-                    strokeWidth = 2f
-                )
-            }
-            drawLine(
-                color = Color(0x88D4AF37),
-                start = Offset(w * 0.20f, topStoneHeight * 0.72f),
-                end = Offset(w * 0.80f, topStoneHeight * 0.72f),
-                strokeWidth = 1.8f
-            )
-
-            // 5. Bottom Carved Dark Stone Bench Rim (Player Territory)
-            val botStoneTop = h * 0.77f
-            val botStonePath = Path().apply {
-                moveTo(0f, h)
-                lineTo(w, h)
-                lineTo(w, botStoneTop + h * 0.03f)
-                lineTo(w * 0.84f, botStoneTop + h * 0.01f)
-                lineTo(w * 0.66f, botStoneTop)
-                lineTo(w * 0.34f, botStoneTop)
-                lineTo(w * 0.16f, botStoneTop + h * 0.015f)
-                lineTo(0f, botStoneTop + h * 0.035f)
-                close()
-            }
-            drawPath(
-                path = botStonePath,
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xCC1A273F), Color(0xDD121B2E), Color(0xF009101E))
-                )
-            )
-            drawLine(
-                color = Color(0x8838E4FF),
-                start = Offset(w * 0.16f, botStoneTop + h * 0.015f),
-                end = Offset(w * 0.84f, botStoneTop + h * 0.01f),
-                strokeWidth = 2.2f
-            )
-            for (i in 1..7) {
-                val bx = w * (0.14f + i * 0.105f)
-                drawLine(
-                    color = Color(0x60050A12),
-                    start = Offset(bx, botStoneTop + h * 0.01f),
-                    end = Offset(bx + w * 0.01f, h),
-                    strokeWidth = 2f
-                )
-            }
-            drawLine(
-                color = Color(0x88D4AF37),
-                start = Offset(w * 0.20f, botStoneTop + h * 0.06f),
-                end = Offset(w * 0.80f, botStoneTop + h * 0.06f),
-                strokeWidth = 1.8f
-            )
-
-            // 6. Left & Right Dark Obsidian Stone Flanking Ridges
-            val leftGlacier = Path().apply {
-                moveTo(0f, 0f)
-                lineTo(w * 0.11f, 0f)
-                lineTo(w * 0.085f, h * 0.24f)
-                lineTo(w * 0.115f, midY)
-                lineTo(w * 0.085f, h * 0.76f)
-                lineTo(w * 0.12f, h)
-                lineTo(0f, h)
-                close()
-            }
-            drawPath(
-                path = leftGlacier,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(Color(0xE00A111F), Color(0x9416233B), Color.Transparent)
-                )
-            )
-
-            val rightGlacier = Path().apply {
-                moveTo(w, 0f)
-                lineTo(w * 0.89f, 0f)
-                lineTo(w * 0.915f, h * 0.24f)
-                lineTo(w * 0.885f, midY)
-                lineTo(w * 0.915f, h * 0.76f)
-                lineTo(w * 0.88f, h)
-                lineTo(w, h)
-                close()
-            }
-            drawPath(
-                path = rightGlacier,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(Color.Transparent, Color(0x9416233B), Color(0xE00A111F))
-                )
-            )
-
-            // 7. Etched Metallic Gold Corner Filigree Brackets
-            val bracketMargin = 14.dp.toPx()
-            val bracketLen = 28.dp.toPx()
-            val bracketColor = Color(0x99D4AF37)
-            val bracketStroke = 2.dp.toPx()
-            // Top-left
-            drawLine(bracketColor, Offset(bracketMargin, bracketMargin + bracketLen), Offset(bracketMargin, bracketMargin), bracketStroke, StrokeCap.Round)
-            drawLine(bracketColor, Offset(bracketMargin, bracketMargin), Offset(bracketMargin + bracketLen, bracketMargin), bracketStroke, StrokeCap.Round)
-            // Top-right
-            drawLine(bracketColor, Offset(w - bracketMargin - bracketLen, bracketMargin), Offset(w - bracketMargin, bracketMargin), bracketStroke, StrokeCap.Round)
-            drawLine(bracketColor, Offset(w - bracketMargin, bracketMargin), Offset(w - bracketMargin, bracketMargin + bracketLen), bracketStroke, StrokeCap.Round)
-            // Bottom-left
-            drawLine(bracketColor, Offset(bracketMargin, h - bracketMargin - bracketLen), Offset(bracketMargin, h - bracketMargin), bracketStroke, StrokeCap.Round)
-            drawLine(bracketColor, Offset(bracketMargin, h - bracketMargin), Offset(bracketMargin + bracketLen, h - bracketMargin), bracketStroke, StrokeCap.Round)
-            // Bottom-right
-            drawLine(bracketColor, Offset(w - bracketMargin - bracketLen, h - bracketMargin), Offset(w - bracketMargin, h - bracketMargin), bracketStroke, StrokeCap.Round)
-            drawLine(bracketColor, Offset(w - bracketMargin, h - bracketMargin - bracketLen), Offset(w - bracketMargin, h - bracketMargin), bracketStroke, StrokeCap.Round)
-
-            // 8. Glowing Metallic-Gold Centerline (#D4AF37 -> #FFD700)
-            val lineStartX = w * 0.075f
-            val lineEndX = w * 0.915f
-
-            drawLine(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color(0x18D4AF37),
-                        Color(0x70FFD700),
-                        Color(0x70FFD700),
-                        Color(0x18D4AF37)
-                    ),
-                    startX = lineStartX,
-                    endX = lineEndX
-                ),
-                start = Offset(lineStartX, midY),
-                end = Offset(lineEndX, midY),
-                strokeWidth = 15f,
-                cap = StrokeCap.Round
-            )
-
-            drawLine(
-                color = Color(0xCC070B12),
-                start = Offset(lineStartX, midY + 3.2f),
-                end = Offset(lineEndX, midY + 3.2f),
-                strokeWidth = 5.5f
-            )
-
-            drawLine(
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFFFFD700), Color(0xFFD4AF37), Color(0xFF7D5C12)),
-                    startY = midY - 3f,
-                    endY = midY + 3f
-                ),
-                start = Offset(lineStartX, midY),
-                end = Offset(lineEndX, midY),
-                strokeWidth = 5f,
-                cap = StrokeCap.Round
-            )
-
-            // Carved Golden Boss Medallion + Flanking Center Runic Diamonds
-            val centerDiamondX = w * 0.50f
-            val dR = 6.dp.toPx()
-            val diamondPath = Path().apply {
-                moveTo(centerDiamondX, midY - dR)
-                lineTo(centerDiamondX + dR * 1.3f, midY)
-                lineTo(centerDiamondX, midY + dR)
-                lineTo(centerDiamondX - dR * 1.3f, midY)
-                close()
-            }
-            drawPath(diamondPath, Color(0xFF0E1B30))
-            drawPath(diamondPath, Color(0xFFFFD700), style = Stroke(2f))
-            drawCircle(Color(0xAA00BFFF), radius = dR * 0.38f, center = Offset(centerDiamondX, midY))
-
-            val bossCenter = Offset(w * 0.195f, midY)
-            val bossRadius = (h * 0.044f).coerceIn(14f, 26f)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0xFFFFD700), Color(0xFFD4AF37), Color(0xFF563B0E)),
-                    center = bossCenter - Offset(bossRadius * 0.25f, bossRadius * 0.25f),
-                    radius = bossRadius * 1.4f
-                ),
-                radius = bossRadius,
-                center = bossCenter
-            )
-            drawCircle(
-                color = Color(0xFF1D160B),
-                radius = bossRadius,
-                center = bossCenter,
-                style = Stroke(width = 2.5f)
-            )
-            drawCircle(
-                color = Color(0x99FFF3BA),
-                radius = bossRadius * 0.72f,
-                center = bossCenter,
-                style = Stroke(width = 1.5f)
             )
         }
     }
@@ -745,6 +455,226 @@ fun FacetedNexusCrystal(
                 Text(
                     text = "-$hitDelta",
                     style = tabularStatStyle((hpFontSize.value * 0.78f).coerceAtLeast(10f).sp),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Anchors live HP plaques and interactive Nexus hitboxes directly over the Enemy (top-left red gem)
+ * and Player (bottom-left blue gem) Nexuses painted inside R.drawable.img_board_arena_bg (1076x614),
+ * replacing the baked "20" numbers cleanly using exact ContentScale.Crop geometry.
+ */
+@Composable
+fun ArenaBoardNexusOverlay(
+    enemyHp: Int,
+    enemyMaxHp: Int,
+    enemyHitDelta: Int,
+    playerHp: Int,
+    playerMaxHp: Int,
+    playerHitDelta: Int,
+    onEnemyNexusBoundsChanged: (Rect) -> Unit,
+    onEnemyNexusClick: () -> Unit,
+    onPlayerNexusClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val containerW = maxWidth
+        val containerH = maxHeight
+        if (containerW <= 1.dp || containerH <= 1.dp) return@BoxWithConstraints
+
+        val imgW = 1076f
+        val imgH = 614f
+        val scaleDp = maxOf(containerW.value / imgW, containerH.value / imgH)
+        val drawnW = (imgW * scaleDp).dp
+        val drawnH = (imgH * scaleDp).dp
+        val offsetX = (containerW - drawnW) / 2f
+        val offsetY = (containerH - drawnH) / 2f
+
+        // Enemy Nexus in img_board_arena_bg: crystal+plaque ~ x=[100..211], y=[200..260]; "20" box ~ x=[161..210], y=[213..249]
+        ArenaSingleNexusOverlay(
+            hp = enemyHp,
+            maxHp = enemyMaxHp,
+            isEnemy = true,
+            hitDelta = enemyHitDelta,
+            scaleDp = scaleDp,
+            imgOffsetX = offsetX,
+            imgOffsetY = offsetY,
+            containerW = containerW,
+            containerH = containerH,
+            plaqueImgLeft = 161f,
+            plaqueImgTop = 213f,
+            plaqueImgWidth = 49f,
+            plaqueImgHeight = 36f,
+            nexusImgLeft = 100f,
+            nexusImgTop = 200f,
+            nexusImgWidth = 112f,
+            nexusImgHeight = 60f,
+            hpTestTag = "enemy_nexus_hp",
+            onBoundsChanged = onEnemyNexusBoundsChanged,
+            onClick = onEnemyNexusClick
+        )
+
+        // Player Nexus in img_board_arena_bg: crystal+plaque ~ x=[100..211], y=[332..392]; "20" box ~ x=[161..210], y=[343..379]
+        ArenaSingleNexusOverlay(
+            hp = playerHp,
+            maxHp = playerMaxHp,
+            isEnemy = false,
+            hitDelta = playerHitDelta,
+            scaleDp = scaleDp,
+            imgOffsetX = offsetX,
+            imgOffsetY = offsetY,
+            containerW = containerW,
+            containerH = containerH,
+            plaqueImgLeft = 161f,
+            plaqueImgTop = 343f,
+            plaqueImgWidth = 49f,
+            plaqueImgHeight = 36f,
+            nexusImgLeft = 100f,
+            nexusImgTop = 332f,
+            nexusImgWidth = 112f,
+            nexusImgHeight = 60f,
+            hpTestTag = "player_nexus_hp",
+            onBoundsChanged = null,
+            onClick = onPlayerNexusClick
+        )
+    }
+}
+
+@Composable
+private fun ArenaSingleNexusOverlay(
+    hp: Int,
+    maxHp: Int,
+    isEnemy: Boolean,
+    hitDelta: Int,
+    scaleDp: Float,
+    imgOffsetX: Dp,
+    imgOffsetY: Dp,
+    containerW: Dp,
+    containerH: Dp,
+    plaqueImgLeft: Float,
+    plaqueImgTop: Float,
+    plaqueImgWidth: Float,
+    plaqueImgHeight: Float,
+    nexusImgLeft: Float,
+    nexusImgTop: Float,
+    nexusImgWidth: Float,
+    nexusImgHeight: Float,
+    hpTestTag: String,
+    onBoundsChanged: ((Rect) -> Unit)?,
+    onClick: () -> Unit
+) {
+    val effectivePlaqueImgWidth = if (hp >= 100) maxOf(plaqueImgWidth, 58f) else plaqueImgWidth
+    val hitW = (maxOf(nexusImgWidth, (plaqueImgLeft - nexusImgLeft) + effectivePlaqueImgWidth) * scaleDp).dp.coerceAtLeast(64.dp)
+    val hitH = (nexusImgHeight * scaleDp).dp.coerceAtLeast(48.dp)
+    val hitLeft = (imgOffsetX + (nexusImgLeft * scaleDp).dp).coerceIn(0.dp, (containerW - hitW).coerceAtLeast(0.dp))
+    val hitTop = (imgOffsetY + (nexusImgTop * scaleDp).dp).coerceIn(0.dp, (containerH - hitH).coerceAtLeast(0.dp))
+
+    val plaqueW = (effectivePlaqueImgWidth * scaleDp).dp.coerceAtLeast(32.dp)
+    val plaqueH = (plaqueImgHeight * scaleDp).dp.coerceAtLeast(22.dp)
+    val plaqueRelX = ((imgOffsetX + (plaqueImgLeft * scaleDp).dp) - hitLeft).coerceAtLeast(0.dp)
+    val plaqueRelY = ((imgOffsetY + (plaqueImgTop * scaleDp).dp) - hitTop).coerceAtLeast(0.dp)
+    val baseFontSp = (plaqueH.value * 0.54f).coerceIn(11.5f, 19f)
+    val hpFontSp = (if (hp >= 100) baseFontSp * 0.80f else baseFontSp).sp
+
+    val descLabel = if (isEnemy) {
+        "Nhà Chính Địch: $hp/$maxHp máu"
+    } else {
+        "Nhà Chính Của Bạn: $hp/$maxHp máu"
+    }
+
+    Box(
+        modifier = Modifier
+            .offset(x = hitLeft, y = hitTop)
+            .size(width = hitW, height = hitH)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .minimumInteractiveComponentSize()
+                .then(
+                    if (onBoundsChanged != null) {
+                        Modifier.onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) }
+                    } else {
+                        Modifier
+                    }
+                )
+                .testTag(hpTestTag)
+                .semantics { contentDescription = descLabel }
+                .clickable(onClick = onClick)
+        ) {
+            // Subtle damage pulse aura over the painted Nexus gem when taking damage
+            if (hitDelta > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .size(hitH * 0.92f)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(CrimsonNexus.copy(alpha = 0.65f), Color.Transparent)
+                            )
+                        )
+                )
+            }
+
+            // Opaque carved plaque covering the baked "20" inside the arena image and displaying live HP
+            Box(
+                modifier = Modifier
+                    .offset(x = plaqueRelX, y = plaqueRelY)
+                    .size(width = plaqueW, height = plaqueH)
+                    .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp, topStart = 3.dp, bottomStart = 3.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            colors = if (hitDelta > 0) {
+                                listOf(Color(0xFF4C0D16), Color(0xFF2B070C))
+                            } else {
+                                listOf(Color(0xFF1A1E2A), Color(0xFF0E1118))
+                            }
+                        )
+                    )
+                    .border(
+                        width = 1.4.dp,
+                        color = when {
+                            hitDelta > 0 -> CrimsonNexus
+                            isEnemy -> Color(0xFFB58638)
+                            else -> Color(0xFFC49742)
+                        },
+                        shape = RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp, topStart = 3.dp, bottomStart = 3.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "$hp",
+                    style = tabularStatStyle(
+                        fontSize = hpFontSp,
+                        color = if (hitDelta > 0) Color(0xFFFCA5A5) else ParchmentWhite
+                    ),
+                    maxLines = 1,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        // Floating damage delta pill kept outside clickable semantics so hpTestTag always reports clean HP text
+        AnimatedVisibility(
+            visible = hitDelta > 0,
+            enter = fadeIn(tween(120)),
+            exit = fadeOut(tween(220)),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 4.dp, y = (-6).dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = CrimsonNexus,
+                border = BorderStroke(1.dp, ParchmentWhite)
+            ) {
+                Text(
+                    text = "-$hitDelta",
+                    style = tabularStatStyle((hpFontSp.value * 0.78f).coerceAtLeast(10f).sp),
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }
@@ -1150,15 +1080,22 @@ fun RightManaActionDial(
         } else {
             val isPlayerToken = combat.playerHasAttackToken
             val isEnemyToken = combat.enemyHasAttackToken
-            val tokenScale = if (isPlayerToken) pulseScale else 1f
+            val tokenScale = if (isPlayerToken || isEnemyToken) pulseScale else 1f
+            // Dock the glowing Attack Sword directly on the attacker's side:
+            // Lower-left for Player's attack turn, Upper-left for Enemy's attack turn
+            val verticalOffset = when {
+                isPlayerToken -> dialHeight * 0.23f
+                isEnemyToken -> -dialHeight * 0.23f
+                else -> 0.dp
+            }
             val auraColor = when {
-                isPlayerToken -> HextechGoldBright.copy(alpha = 0.45f)
-                isEnemyToken -> CrimsonNexus.copy(alpha = 0.40f)
+                isPlayerToken -> HextechGoldBright.copy(alpha = 0.55f)
+                isEnemyToken -> CrimsonNexus.copy(alpha = 0.50f)
                 else -> Color.Transparent
             }
             val emblemBg = when {
                 isPlayerToken -> Brush.radialGradient(
-                    colors = listOf(Color(0xFFFFF0A8), Color(0xFFF59E0B), Color(0xFF92400E))
+                    colors = listOf(Color(0xFFFFF4B8), Color(0xFFF59E0B), Color(0xFF78350F))
                 )
                 isEnemyToken -> Brush.radialGradient(
                     colors = listOf(Color(0xFFFECDD3), CrimsonNexus, Color(0xFF7F1D1D))
@@ -1173,9 +1110,9 @@ fun RightManaActionDial(
                 else -> Color(0xFF64748B)
             }
             val statusText = when {
-                isPlayerToken -> "TẤN CÔNG"
+                isPlayerToken -> "LƯỢT CÔNG"
                 isEnemyToken -> "ĐỊCH CÔNG"
-                else -> "PHÒNG THỦ"
+                else -> "HẾT CÔNG"
             }
             val statusColor = when {
                 isPlayerToken -> HextechGoldBright
@@ -1186,11 +1123,12 @@ fun RightManaActionDial(
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .offset(x = (-6).dp, y = -dialHeight * 0.19f)
+                    .offset(x = (-8).dp, y = verticalOffset)
                     .graphicsLayer {
                         scaleX = tokenScale
                         scaleY = tokenScale
                     }
+                    .minimumInteractiveComponentSize()
                     .then(
                         if (canInitiateAttack) {
                             Modifier
@@ -1204,13 +1142,13 @@ fun RightManaActionDial(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Box(
-                    modifier = Modifier.size(50.dp),
+                    modifier = Modifier.size(52.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isPlayerToken || isEnemyToken) {
                         Box(
                             modifier = Modifier
-                                .size(50.dp)
+                                .size(52.dp)
                                 .clip(CircleShape)
                                 .background(
                                     Brush.radialGradient(
@@ -1221,22 +1159,72 @@ fun RightManaActionDial(
                     }
                     Box(
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
                             .background(emblemBg)
                             .border(2.4.dp, borderStrokeColor, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = if (isPlayerToken || isEnemyToken) Icons.Default.SportsKabaddi else Icons.Default.Shield,
-                            contentDescription = when {
-                                isPlayerToken -> "Thẻ Tấn Công Của Bạn"
-                                isEnemyToken -> "Thẻ Tấn Công Của Địch"
-                                else -> "Trạng Thái Phòng Thủ"
-                            },
-                            tint = if (isPlayerToken) Color(0xFF1C1003) else ParchmentWhite,
-                            modifier = Modifier.size(23.dp)
-                        )
+                        if (isPlayerToken || isEnemyToken) {
+                            // Sharp gleaming Sword silhouette pointing toward target side
+                            Canvas(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .graphicsLayer {
+                                        rotationZ = if (isPlayerToken) -35f else 145f
+                                    }
+                            ) {
+                                val sw = size.width
+                                val sh = size.height
+                                val bladeColor = if (isPlayerToken) Color(0xFF1F1202) else ParchmentWhite
+                                val hiltColor = if (isPlayerToken) Color(0xFF5C2D05) else Color(0xFFFDE68A)
+                                val bladePath = Path().apply {
+                                    moveTo(sw * 0.50f, sh * 0.06f)
+                                    lineTo(sw * 0.62f, sh * 0.24f)
+                                    lineTo(sw * 0.58f, sh * 0.68f)
+                                    lineTo(sw * 0.42f, sh * 0.68f)
+                                    lineTo(sw * 0.38f, sh * 0.24f)
+                                    close()
+                                }
+                                drawPath(bladePath, bladeColor)
+                                // Fuller shine down center of blade
+                                drawLine(
+                                    color = if (isPlayerToken) Color(0xFFFFE082) else Color(0xFFFCA5A5),
+                                    start = Offset(sw * 0.50f, sh * 0.16f),
+                                    end = Offset(sw * 0.50f, sh * 0.62f),
+                                    strokeWidth = sw * 0.06f,
+                                    cap = StrokeCap.Round
+                                )
+                                // Crossguard
+                                drawLine(
+                                    color = hiltColor,
+                                    start = Offset(sw * 0.22f, sh * 0.69f),
+                                    end = Offset(sw * 0.78f, sh * 0.69f),
+                                    strokeWidth = sw * 0.13f,
+                                    cap = StrokeCap.Round
+                                )
+                                // Grip & pommel
+                                drawLine(
+                                    color = hiltColor,
+                                    start = Offset(sw * 0.50f, sh * 0.70f),
+                                    end = Offset(sw * 0.50f, sh * 0.89f),
+                                    strokeWidth = sw * 0.11f,
+                                    cap = StrokeCap.Round
+                                )
+                                drawCircle(
+                                    color = bladeColor,
+                                    radius = sw * 0.09f,
+                                    center = Offset(sw * 0.50f, sh * 0.91f)
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = "Hết Thẻ Tấn Công",
+                                tint = MutedSilver,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        }
                     }
                 }
 

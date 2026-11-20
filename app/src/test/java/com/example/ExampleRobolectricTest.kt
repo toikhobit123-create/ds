@@ -215,8 +215,11 @@ class ExampleRobolectricTest {
     composeTestRule.onNodeWithTag("player_spell_mana_gem_0").assertIsDisplayed()
     composeTestRule.onNodeWithTag("player_spell_mana_gem_1").assertIsDisplayed()
     composeTestRule.onNodeWithTag("player_spell_mana_gem_2").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("enemy_nexus_hp").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("player_nexus_hp").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("enemy_nexus_hp").assertIsDisplayed().assertTextEquals("16")
+    composeTestRule.onNodeWithTag("player_nexus_hp").assertIsDisplayed().assertTextEquals("45")
+    val enemyHpBounds = composeTestRule.onNodeWithTag("enemy_nexus_hp").getUnclippedBoundsInRoot()
+    val playerHpBounds = composeTestRule.onNodeWithTag("player_nexus_hp").getUnclippedBoundsInRoot()
+    assertTrue(enemyHpBounds.bottom < playerHpBounds.top)
     composeTestRule.onNodeWithTag("combat_log_button").assertIsDisplayed()
     composeTestRule.onNodeWithTag("end_round_button").assertIsDisplayed()
     composeTestRule.onNodeWithTag("enemy_hand_count").assertIsDisplayed()
@@ -729,5 +732,151 @@ class ExampleRobolectricTest {
       )
     ).assertIsDisplayed()
   }
+
+  @Test
+  fun `attackSwordIndicatorMovesBetweenPlayerSideAndEnemySideByAttackToken`() {
+    val adv = AdventureCatalog.getAdventure("adv_demacia_outskirts")
+    val node = adv.mapNodes.first { it.id == "d_fight_1a" }
+    val playerState = CombatState(
+      encounterNode = node,
+      adventure = adv,
+      championId = "champ_anivia",
+      starLevel = 1,
+      equippedRelics = emptyList(),
+      activePowers = emptyList(),
+      mutators = emptyList(),
+      playerNexusHp = 30,
+      playerMaxHp = 30,
+      enemyNexusHp = 20,
+      enemyMaxHp = 20,
+      playerHasAttackToken = true,
+      enemyHasAttackToken = false
+    )
+    val stateHolder = androidx.compose.runtime.mutableStateOf(playerState)
+
+    composeTestRule.setContent {
+      PathOfChampionsTheme {
+        Box(modifier = Modifier.size(width = 850.dp, height = 390.dp)) {
+          com.example.ui.components.RightManaActionDial(
+            combat = stateHolder.value,
+            dialWidth = 180.dp,
+            dialHeight = 190.dp,
+            actionDiameter = 76.dp,
+            descFontSize = androidx.compose.ui.unit.TextUnit(12f, androidx.compose.ui.unit.TextUnitType.Sp),
+            statFontSize = androidx.compose.ui.unit.TextUnit(14f, androidx.compose.ui.unit.TextUnitType.Sp),
+            onEnterAttack = {},
+            onCancelAttack = {},
+            onCommitAttack = {},
+            onCommitBlock = {},
+            onPassTurn = {}
+          )
+        }
+      }
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNode(androidx.compose.ui.test.hasText("LƯỢT CÔNG")).assertIsDisplayed()
+    val playerSwordBounds = composeTestRule.onNode(androidx.compose.ui.test.hasText("LƯỢT CÔNG")).getUnclippedBoundsInRoot()
+
+    composeTestRule.runOnUiThread {
+      stateHolder.value = playerState.copy(
+        playerHasAttackToken = false,
+        enemyHasAttackToken = true
+      )
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNode(androidx.compose.ui.test.hasText("ĐỊCH CÔNG")).assertIsDisplayed()
+    val enemySwordBounds = composeTestRule.onNode(androidx.compose.ui.test.hasText("ĐỊCH CÔNG")).getUnclippedBoundsInRoot()
+
+    // Player's attack sword sits on the lower side; Enemy's attack sword sits on the upper side
+    assertTrue(playerSwordBounds.top > enemySwordBounds.top)
+  }
+
+  @Test
+  fun `aniviaLevelUpTransformsArtworkAndTriggersBattleLevelUpOverlay`() {
+    val adv = AdventureCatalog.getAdventure("adv_demacia_outskirts")
+    val node = adv.mapNodes.first { it.id == "d_fight_1a" }
+    val aniviaLv1 = UnitOnBoard(
+      instanceId = "anv_1",
+      template = CardCatalog.getCard("card_anivia"),
+      ownerIsPlayer = true,
+      power = 3,
+      health = 5,
+      maxHealth = 5,
+      keywords = setOf(com.example.model.Keyword.ELEMENTAL),
+      isLeveledUp = false
+    )
+    val aniviaLv2 = aniviaLv1.copy(
+      power = 4,
+      health = 6,
+      maxHealth = 6,
+      isLeveledUp = true
+    )
+
+    assertEquals(R.drawable.img_champ_anivia, com.example.ui.components.unitPortraitRes(aniviaLv1))
+    assertEquals(R.drawable.img_wings_of_cryophoenix, com.example.ui.components.unitPortraitRes(aniviaLv2))
+
+    val baseCombat = CombatState(
+      encounterNode = node,
+      adventure = adv,
+      championId = "champ_anivia",
+      starLevel = 2,
+      equippedRelics = emptyList(),
+      activePowers = emptyList(),
+      mutators = emptyList(),
+      round = 9,
+      playerNexusHp = 35,
+      playerMaxHp = 35,
+      enemyNexusHp = 20,
+      enemyMaxHp = 20,
+      playerMana = 9,
+      playerMaxMana = 9,
+      playerBoard = listOf(aniviaLv1)
+    )
+    val combatHolder = androidx.compose.runtime.mutableStateOf(baseCombat)
+
+    composeTestRule.setContent {
+      PathOfChampionsTheme {
+        Box(modifier = Modifier.size(width = 850.dp, height = 390.dp)) {
+          com.example.ui.screens.CombatScreen(
+            combat = combatHolder.value,
+            revivesRemaining = 1,
+            onPlayCard = {},
+            onEnterAttack = {},
+            onCancelAttack = {},
+            onToggleAttacker = {},
+            onCommitAttack = {},
+            onSelectEnemyAttackerForBlock = {},
+            onAssignBlocker = { _, _ -> },
+            onRemoveBlocker = {},
+            onCommitBlock = {},
+            onResolveStack = {},
+            onPassTurn = {},
+            onVictoryContinue = {},
+            onUseRevive = {},
+            onAcceptDefeat = {},
+            onAbandonRun = {}
+          )
+        }
+      }
+    }
+    composeTestRule.waitForIdle()
+    assertEquals(0, composeTestRule.onAllNodesWithTag("champion_level_up_overlay").fetchSemanticsNodes().size)
+
+    // Simulate Round Start Enlightened leveling up Anivia to Lv2
+    composeTestRule.runOnUiThread {
+      combatHolder.value = baseCombat.copy(
+        round = 10,
+        playerMana = 10,
+        playerMaxMana = 10,
+        isEnlightened = true,
+        playerBoard = listOf(aniviaLv2)
+      )
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("champion_level_up_overlay").assertIsDisplayed()
+    composeTestRule.onNode(androidx.compose.ui.test.hasText("THĂNG CẤP • CẤP 2")).assertIsDisplayed()
+  }
 }
+
 

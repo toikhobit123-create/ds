@@ -1,6 +1,19 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +33,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -40,20 +54,37 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.engine.CombatPhase
 import com.example.engine.CombatState
 import com.example.model.HandCardInstance
 import com.example.model.UnitOnBoard
 import com.example.ui.components.CardTile
+import com.example.ui.components.fantasyHeadingStyle
+import com.example.ui.components.tabularStatStyle
+import com.example.ui.components.unitPortraitRes
 import com.example.ui.theme.ArcaneCyan
 import com.example.ui.theme.CrimsonNexus
 import com.example.ui.theme.DarkButtonInk
@@ -61,12 +92,15 @@ import com.example.ui.theme.EmeraldHeal
 import com.example.ui.theme.EpicViolet
 import com.example.ui.theme.HextechGold
 import com.example.ui.theme.HextechGoldBright
+import com.example.ui.theme.InterFontFamily
 import com.example.ui.theme.LegendaryAmber
 import com.example.ui.theme.MutedSilver
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.ObsidianSurface
 import com.example.ui.theme.ParchmentWhite
 import com.example.ui.theme.SlateBorder
+import kotlin.math.cos
+import kotlin.math.sin
 
 data class CombatEmoteOption(
     val id: String,
@@ -205,7 +239,8 @@ fun UnitInspectOverlay(
                     bonusHealth = unit.health - unit.template.baseHealth,
                     attachedItems = unit.attachedItems,
                     extraKeywords = unit.keywords,
-                    playable = true
+                    playable = true,
+                    isLeveledUp = unit.isLeveledUp
                 )
                 if (unit.equippedGearName != null) {
                     Text(
@@ -655,4 +690,254 @@ fun CombatGameOverDialog(
             }
         }
     )
+}
+
+@Composable
+fun ChampionLevelUpBannerOverlay(
+    unit: UnitOnBoard,
+    onDismiss: () -> Unit
+) {
+    val revealScale = remember(unit.instanceId) { Animatable(0.62f) }
+    val burstProgress = remember(unit.instanceId) { Animatable(0f) }
+    val infiniteTransition = rememberInfiniteTransition(label = "level_up_rays")
+    val rayAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 4800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "level_up_ray_angle"
+    )
+
+    LaunchedEffect(unit.instanceId) {
+        revealScale.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        )
+    }
+    LaunchedEffect(unit.instanceId) {
+        burstProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 900)
+        )
+    }
+
+    val portraitRes = unitPortraitRes(unit)
+    val subtitleText = when (unit.template.id) {
+        "card_anivia" -> "Khai Sáng — Phượng Hoàng Băng Thăng Hoa!"
+        "card_jinx" -> "Siêu Quậy Bùng Nổ — Tên Lửa Khổng Lồ!"
+        "card_lux" -> "Ánh Sáng Tối Thượng — Cầu Vồng Rực Rỡ!"
+        "card_yasuo" -> "Tuyệt Kỹ Kiếm Gió — Bão Thép!"
+        else -> "Sức Mạnh Anh Hùng Thức Tỉnh (+${unit.template.levelUpPowerBonus}/+${unit.template.levelUpHealthBonus})"
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(88f)
+            .background(Color(0x8E040812))
+            .testTag("champion_level_up_overlay")
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.Center
+    ) {
+        // Rotating gold & arcane burst aura behind the transformed Lv2 Champion card
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val center = Offset(size.width * 0.5f, size.height * 0.48f)
+            val maxR = size.minDimension * 0.62f
+
+            // Expanding radial shockwave ring
+            val waveRadius = maxR * (0.35f + 0.65f * burstProgress.value)
+            val waveAlpha = (1f - burstProgress.value).coerceIn(0f, 1f) * 0.65f
+            if (waveAlpha > 0.01f) {
+                drawCircle(
+                    color = HextechGoldBright.copy(alpha = waveAlpha),
+                    radius = waveRadius,
+                    center = center,
+                    style = Stroke(width = 6.dp.toPx())
+                )
+            }
+
+            // Ambient radial glow
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        HextechGoldBright.copy(alpha = 0.44f),
+                        ArcaneCyan.copy(alpha = 0.24f),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = maxR
+                ),
+                radius = maxR,
+                center = center
+            )
+
+            // Rotating sunburst rays
+            val rayCount = 12
+            for (i in 0 until rayCount) {
+                val deg = rayAngle + (i * (360f / rayCount))
+                val rad = Math.toRadians(deg.toDouble())
+                val start = Offset(
+                    x = center.x + (cos(rad) * maxR * 0.16f).toFloat(),
+                    y = center.y + (sin(rad) * maxR * 0.16f).toFloat()
+                )
+                val end = Offset(
+                    x = center.x + (cos(rad) * maxR * 0.88f).toFloat(),
+                    y = center.y + (sin(rad) * maxR * 0.88f).toFloat()
+                )
+                drawLine(
+                    color = if (i % 2 == 0) HextechGoldBright.copy(alpha = 0.36f) else ArcaneCyan.copy(alpha = 0.30f),
+                    start = start,
+                    end = end,
+                    strokeWidth = if (i % 2 == 0) 4.dp.toPx() else 2.5.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        Surface(
+            modifier = Modifier
+                .widthIn(min = 240.dp, max = 330.dp)
+                .graphicsLayer {
+                    scaleX = revealScale.value
+                    scaleY = revealScale.value
+                },
+            shape = RoundedCornerShape(18.dp),
+            color = Color(0xF5111C30),
+            border = BorderStroke(
+                width = 2.6.dp,
+                brush = Brush.linearGradient(
+                    listOf(Color(0xFFFFF8C9), HextechGoldBright, ArcaneCyan, HextechGoldBright)
+                )
+            ),
+            shadowElevation = 22.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Header ribbon
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = Color(0xFF1F2D47),
+                    border = BorderStroke(1.2.dp, HextechGoldBright)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = null,
+                            tint = HextechGoldBright,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "THĂNG CẤP • CẤP 2",
+                            style = fantasyHeadingStyle(12.sp, HextechGoldBright)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = null,
+                            tint = ArcaneCyan,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+
+                // Transformed Lv2 Champion Artwork Showcase
+                if (portraitRes != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(128.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(2.dp, ArcaneCyan.copy(alpha = 0.85f), RoundedCornerShape(12.dp))
+                    ) {
+                        Image(
+                            painter = painterResource(id = portraitRes),
+                            contentDescription = "${unit.template.name} Cấp 2",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color(0x66060C18))
+                                    )
+                                )
+                        )
+                        // Lv2 badge in top-right of showcase frame
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(6.dp),
+                            shape = CircleShape,
+                            color = Color(0xEB0B1424),
+                            border = BorderStroke(1.3.dp, HextechGoldBright)
+                        ) {
+                            Text(
+                                text = "LV 2",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = ArcaneCyan,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = unit.template.name.uppercase(),
+                    style = fantasyHeadingStyle(17.sp, ParchmentWhite),
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = subtitleText,
+                    fontFamily = InterFontFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ArcaneCyan,
+                    textAlign = TextAlign.Center
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = LegendaryAmber.copy(alpha = 0.25f),
+                        border = BorderStroke(1.dp, LegendaryAmber)
+                    ) {
+                        Text(
+                            text = "${unit.strikePower} CÔNG",
+                            style = tabularStatStyle(12.sp, HextechGoldBright),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = CrimsonNexus.copy(alpha = 0.25f),
+                        border = BorderStroke(1.dp, CrimsonNexus)
+                    ) {
+                        Text(
+                            text = "${unit.health} MÁU",
+                            style = tabularStatStyle(12.sp, ParchmentWhite),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

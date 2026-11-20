@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -11,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -158,6 +160,7 @@ fun CardTile(
     isFleeting: Boolean = false,
     playable: Boolean = true,
     highlighted: Boolean = false,
+    isLeveledUp: Boolean = false,
     compact: Boolean = false,
     testTag: String? = null,
     onClick: (() -> Unit)? = null,
@@ -170,8 +173,13 @@ fun CardTile(
     var inspectedSpellSpeed by remember { mutableStateOf<SpellSpeed?>(null) }
 
     val regionColor = regionAccentColor(template.region)
-    val frameBrush = cardVariantFrameBrush(template, focused = highlighted, playable = playable)
+    val frameBrush = if (isLeveledUp) {
+        Brush.linearGradient(listOf(Color(0xFFFFF8C9), HextechGoldBright, ArcaneCyan, HextechGoldBright))
+    } else {
+        cardVariantFrameBrush(template, focused = highlighted, playable = playable)
+    }
     val accentColor = when {
+        isLeveledUp -> ArcaneCyan
         highlighted -> HextechGoldBright
         template.type == CardType.CURSE -> CurseMagenta
         template.isChampion -> HextechGoldBright
@@ -195,10 +203,10 @@ fun CardTile(
             ),
         shape = RoundedCornerShape(12.dp),
         color = if (playable) ObsidianCard else ObsidianSurface,
-        border = BorderStroke(if (highlighted || template.isChampion) 2.2.dp else 1.6.dp, frameBrush),
-        shadowElevation = if (highlighted) 12.dp else 7.dp
+        border = BorderStroke(if (isLeveledUp || highlighted || template.isChampion) 2.4.dp else 1.6.dp, frameBrush),
+        shadowElevation = if (isLeveledUp || highlighted) 14.dp else 7.dp
     ) {
-        val tileArtRes = cardPortraitRes(template.id)
+        val tileArtRes = championPortraitRes(template.id, isLeveledUp)
         Box(modifier = Modifier.fillMaxWidth()) {
             // Subtle metallic filigree overlay across card frame
             Image(
@@ -333,6 +341,16 @@ fun CardTile(
                                     color = rarityColor(template.rarity),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (isLeveledUp) {
+                                Text(
+                                    text = "• CẤP 2 ★",
+                                    fontFamily = InterFontFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = HextechGoldBright,
+                                    maxLines = 1
                                 )
                             }
                             if (isFleeting) {
@@ -650,6 +668,18 @@ fun cardPortraitRes(cardId: String): Int? = when (cardId) {
     "card_uzgar", "card_rhasa", "card_rumul", "card_lost_soul", "card_twinblade_revenant" -> R.drawable.img_clash_of_giants
     else -> null
 }
+
+@DrawableRes
+fun championPortraitRes(cardId: String, isLeveledUp: Boolean): Int? =
+    if (isLeveledUp && cardId == "card_anivia") {
+        R.drawable.img_wings_of_cryophoenix
+    } else {
+        cardPortraitRes(cardId)
+    }
+
+@DrawableRes
+fun unitPortraitRes(unit: UnitOnBoard): Int? =
+    championPortraitRes(unit.template.id, unit.isLeveledUp)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1069,6 +1099,28 @@ fun UnitToken(
         )
     }
 
+    // Champion Level-Up (Lv1 -> Lv2) board burst animation
+    var prevLeveled by remember(unit.instanceId) { mutableStateOf(unit.isLeveledUp) }
+    val levelUpScale = remember(unit.instanceId) { Animatable(1f) }
+    val levelUpFlash = remember(unit.instanceId) { Animatable(0f) }
+    LaunchedEffect(unit.isLeveledUp) {
+        if (!prevLeveled && unit.isLeveledUp) {
+            prevLeveled = true
+            levelUpFlash.snapTo(1f)
+            levelUpScale.snapTo(1.24f)
+            levelUpScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+            levelUpFlash.animateTo(0f, animationSpec = tween(700))
+        } else {
+            prevLeveled = unit.isLeveledUp
+        }
+    }
+
     // Damage hit feedback when unit health drops
     var prevHealth by remember(unit.instanceId) { mutableIntStateOf(unit.health) }
     var damageDelta by remember(unit.instanceId) { mutableIntStateOf(0) }
@@ -1084,18 +1136,22 @@ fun UnitToken(
     }
 
     val isChampion = unit.template.isChampion
+    val isLeveledChampion = isChampion && unit.isLeveledUp
     val frameBrush = when {
         damageDelta > 0 -> Brush.verticalGradient(listOf(CrimsonNexus, Color(0xFF7F1D1D)))
         isSelected -> Brush.verticalGradient(listOf(Color(0xFF7DD3FC), ArcaneCyan))
         isAttacking -> Brush.verticalGradient(listOf(Color(0xFFFDE68A), LegendaryAmber))
         isBlockingLabel != null -> Brush.verticalGradient(listOf(Color(0xFF6EE7B7), EmeraldHeal))
         isValidBlockCandidate -> Brush.verticalGradient(listOf(ArcaneCyan, Color(0xFF0369A1)))
+        isLeveledChampion -> Brush.linearGradient(
+            listOf(Color(0xFFFFF8C9), HextechGoldBright, ArcaneCyan, HextechGoldBright)
+        )
         isChampion -> Brush.linearGradient(listOf(HextechGoldBright, HextechGold, HextechGoldDeep))
         else -> Brush.linearGradient(listOf(FollowerSilverBright, FollowerSilverDark, FollowerBronze))
     }
 
     val regionColor = regionAccentColor(unit.template.region)
-    val portraitRes = cardPortraitRes(unit.template.id)
+    val portraitRes = unitPortraitRes(unit)
     val cornerRadius = tileWidth * 0.12f
     val statTextSize = (statFontSize.value * 1.02f).coerceIn(11f, 17f).sp
 
@@ -1124,8 +1180,9 @@ fun UnitToken(
         modifier = modifier
             .alpha(if (isDragging) 0.25f else 1f)
             .graphicsLayer {
-                scaleX = spawnScale.value
-                scaleY = spawnScale.value
+                val combinedScale = spawnScale.value * levelUpScale.value
+                scaleX = combinedScale
+                scaleY = combinedScale
             }
             .size(width = tileWidth, height = tileHeight)
             .minimumInteractiveComponentSize()
@@ -1135,6 +1192,25 @@ fun UnitToken(
                 onLongClick = onLongClick
             )
     ) {
+        // Radiant Lv2 aura ring or transient Lv2 flash glow
+        if (isLeveledChampion || levelUpFlash.value > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 1.dp)
+                    .clip(RoundedCornerShape(cornerRadius + 2.dp))
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFFFFF5B8).copy(alpha = (0.18f + levelUpFlash.value * 0.55f).coerceAtMost(0.75f)),
+                                ArcaneCyan.copy(alpha = (0.12f + levelUpFlash.value * 0.35f).coerceAtMost(0.50f)),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+        }
+
         // Carved Metallic / Gold Ornate Frame Body
         Surface(
             modifier = Modifier
@@ -1143,13 +1219,13 @@ fun UnitToken(
             shape = RoundedCornerShape(cornerRadius),
             color = if (unit.isFrostbitten) Color(0xFF2A4E7A) else Color(0xFF223654),
             border = BorderStroke(
-                width = if (damageDelta > 0 || isSelected || isAttacking || isChampion) 2.2.dp else 1.6.dp,
+                width = if (isLeveledChampion) 2.6.dp else if (damageDelta > 0 || isSelected || isAttacking || isChampion) 2.2.dp else 1.6.dp,
                 brush = frameBrush
             ),
-            shadowElevation = if (isSelected || isAttacking || isChampion) 6.dp else 3.dp
+            shadowElevation = if (isLeveledChampion) 10.dp else if (isSelected || isAttacking || isChampion) 6.dp else 3.dp
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // Full-bleed Character Portrait
+                // Full-bleed Character Portrait with smooth Crossfade when transforming Lv1 -> Lv2
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1160,24 +1236,30 @@ fun UnitToken(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (portraitRes != null) {
-                        Image(
-                            painter = painterResource(id = portraitRes),
-                            contentDescription = unit.template.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Icon(
-                            imageVector = when {
-                                unit.template.type == CardType.LANDMARK -> Icons.Default.HourglassBottom
-                                isChampion -> Icons.Default.Star
-                                else -> Icons.Default.SportsKabaddi
-                            },
-                            contentDescription = unit.template.name,
-                            tint = if (isChampion) HextechGoldBright else regionColor,
-                            modifier = Modifier.size(tileWidth * 0.44f)
-                        )
+                    Crossfade(
+                        targetState = portraitRes,
+                        animationSpec = tween(420),
+                        label = "unit_portrait_morph"
+                    ) { resId ->
+                        if (resId != null) {
+                            Image(
+                                painter = painterResource(id = resId),
+                                contentDescription = unit.template.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                imageVector = when {
+                                    unit.template.type == CardType.LANDMARK -> Icons.Default.HourglassBottom
+                                    isChampion -> Icons.Default.Star
+                                    else -> Icons.Default.SportsKabaddi
+                                },
+                                contentDescription = unit.template.name,
+                                tint = if (isChampion) HextechGoldBright else regionColor,
+                                modifier = Modifier.size(tileWidth * 0.44f)
+                            )
+                        }
                     }
 
                     // Top + Bottom edge gradient scrims + recessed metallic inner bezel rim
@@ -1195,8 +1277,12 @@ fun UnitToken(
                                 )
                             )
                             .border(
-                                width = 0.9.dp,
-                                color = if (isChampion) HextechGoldBright.copy(alpha = 0.50f) else FollowerSilverBright.copy(alpha = 0.28f),
+                                width = if (isLeveledChampion) 1.3.dp else 0.9.dp,
+                                color = when {
+                                    isLeveledChampion -> ArcaneCyan.copy(alpha = 0.78f)
+                                    isChampion -> HextechGoldBright.copy(alpha = 0.50f)
+                                    else -> FollowerSilverBright.copy(alpha = 0.28f)
+                                },
                                 shape = RoundedCornerShape(cornerRadius)
                             )
                     )
@@ -1285,14 +1371,31 @@ fun UnitToken(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (isChampion) {
+                    if (unit.isLeveledUp) {
+                        Text(
+                            text = "LV2",
+                            fontSize = (iconSize.value * 0.65f).coerceAtLeast(7f).sp,
+                            fontWeight = FontWeight.Black,
+                            color = ArcaneCyan,
+                            modifier = Modifier.padding(end = 1.dp)
+                        )
+                    }
                     Icon(
                         imageVector = Icons.Default.Star,
                         contentDescription = if (unit.isLeveledUp) "Tướng Đã Thăng Cấp" else "Tướng",
                         tint = HextechGoldBright,
                         modifier = Modifier.size(iconSize)
                     )
+                    if (unit.isLeveledUp) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = null,
+                            tint = Color(0xFFFFF8C9),
+                            modifier = Modifier.size(iconSize)
+                        )
+                    }
                 }
-                activeKeywords.take(3).forEach { (pair, label) ->
+                activeKeywords.take(if (unit.isLeveledUp) 2 else 3).forEach { (pair, label) ->
                     val (icon, tint) = pair
                     Icon(
                         imageVector = icon,
